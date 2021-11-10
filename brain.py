@@ -3,7 +3,6 @@ from torch import nn
 import torch.nn.functional as F
 import torchvision.models as models
 
-n_computations = 4
 n_classes = 10
 
 class vision_processesor(nn.Module):
@@ -63,8 +62,10 @@ class brain_kitchen(nn.Module):
 
 
 class Agent(nn.Module):
-    def __init__(self):
+    def __init__(self, max_iterations):
         super().__init__()
+        self.max_iterations = max_iterations
+
         pretrained_resnet = models.resnet18(pretrained=True)
 
         #self.C1 = nn.Parameter(pretrained_resnet.layer1[0].conv1.weight)
@@ -85,10 +86,12 @@ class Agent(nn.Module):
             nn.Dropout(p=0.2),
             nn.ReLU(),
             nn.Linear(1024, n_classes),
-            nn.Softmax(dim=-1)
+            nn.Sigmoid()
         )
 
     def forward(self, I):
+        max_iterations = self.max_iterations
+
         img_embed = self.vision_processesor(I).detach()
         batch_size = img_embed.shape[0]
         c1 = self.C1.view(1, *self.C1.shape).repeat(batch_size, 1, 1, 1, 1)
@@ -96,10 +99,14 @@ class Agent(nn.Module):
         
         out = self.out0.repeat(batch_size, 1, 1, 1)
 
-        for i in range(n_computations):
+        probs_at_each_iteration = torch.zeros(max_iterations, batch_size, n_classes)
+
+        for i in range(max_iterations):
             c1, c2 = self.brain_menu(out, img_embed)
             out = self.brain_kitchen(c1, c2, out, img_embed)
-
-        prob = torch.log(self.head(out))
-        return prob
+            probs = self.head(out)
+            probs_at_each_iteration[i] = probs
+            
+        
+        return probs_at_each_iteration
     
