@@ -1,4 +1,4 @@
-import torch 
+"""import torch 
 from torch import nn
 import torch.nn.functional as F
 import torchvision.models as models
@@ -19,16 +19,17 @@ class vision_processesor(nn.Module):
 class brain_menu(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv2d(in_channels=64*2, out_channels=64*64*1*3*3, kernel_size=8)   
-        self.conv2 = nn.Conv2d(in_channels=64*2, out_channels=64*64*1*3*3, kernel_size=8)   
+        self.conv1 = nn.Conv2d(in_channels=64, out_channels=64*64*1*3*3, kernel_size=8)   
+        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64*64*1*3*3, kernel_size=8)   
 
     def forward(self, prev_out, img_embed):
-        x = torch.cat((prev_out, img_embed), dim=1)
+        #x = torch.cat((prev_out, img_embed), dim=1)
+        x = prev_out
         batch_size = x.shape[0]
-        #c1 = self.conv1(x).view(-1, 64, 64, 3, 3)
-        #c2 = self.conv2(x).view(-1, 64, 64, 3, 3)
-        c1 = self.conv1(x).view(batch_size*64, 64, 3, 3)
-        c2 = self.conv2(x).view(batch_size*64, 64, 3, 3)
+        c1 = self.conv1(x).view(-1, 64, 64, 3, 3)
+        c2 = self.conv2(x).view(-1, 64, 64, 3, 3)
+        #c1 = self.conv1(x).view(batch_size*64, 64, 3, 3)
+        #c2 = self.conv2(x).view(batch_size*64, 64, 3, 3)
         return c1, c2
 
 
@@ -43,18 +44,25 @@ class brain_kitchen(nn.Module):
         x = prev_out
         batch_size = int(c1.shape[0]/64)
   
-        out = x.view(1, 64*batch_size, *x.shape[2:])
+        #out = x.view(1, 64*batch_size, *x.shape[2:])
         #weight0 = c1.view(64*batch_size, 64, 3, 3).clone().detach().requires_grad_(True)
-        out = F.conv2d(out, weight=c1, stride=1, padding=1, groups=batch_size)
-        out = out.view(batch_size, 64, 8, 8)
+        #out = F.conv2d(out, weight=c1, stride=1, padding=1, groups=batch_size)
+        #out = out.view(batch_size, 64, 8, 8)
+        out = torch.stack([
+            F.conv2d(x[b], c1[b], stride=1, padding=1)
+        ] for b in range(batch_size))
+        
         
         out = self.bn1(out)
         out = F.relu(out)
         
-        out = out.view(1, 64*batch_size, *out.shape[2:])
+        #out = out.view(1, 64*batch_size, *out.shape[2:])
         #weight1 = c2#.detach().clone()
-        out = F.conv2d(out, weight=c2, stride=1, padding=1, groups=batch_size)
-        out = out.view(batch_size, 64, 8, 8)
+        #out = F.conv2d(out, weight=c2, stride=1, padding=1, groups=batch_size)
+        #out = out.view(batch_size, 64, 8, 8)
+        out = torch.stack([
+            F.conv2d(out[b], c2[b], stride=1, padding=1)
+        ] for b in range(batch_size))
         
         out = x + F.relu(self.bn2(out))
 
@@ -99,7 +107,7 @@ class Agent(nn.Module):
         
         out = self.out0.repeat(batch_size, 1, 1, 1)
 
-        probs_at_each_iteration = torch.zeros(max_iterations, batch_size, n_classes)
+        probs_at_each_iteration = torch.zeros(max_iterations, batch_size, n_classes).cuda()
 
         for i in range(max_iterations):
             c1, c2 = self.brain_menu(out, img_embed)
@@ -109,4 +117,115 @@ class Agent(nn.Module):
             
         
         return probs_at_each_iteration
+"""    
     
+ 
+    
+    
+    
+    
+import torch 
+from torch import nn
+import torch.nn.functional as F
+import torchvision.models as models
+
+n_computations = 5
+n_classes = 10
+
+class vision_processesor(nn.Module):
+    def __init__(self):
+        super().__init__()
+        pretrained_resnet = models.resnet18(pretrained=True)
+        self.model = torch.nn.Sequential(*list(pretrained_resnet.children())[:4])
+
+    def forward(self, x):
+        x = self.model(x)
+        return x
+
+
+class brain_menu(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.layer = nn.Sequential(
+            nn.Conv2d(in_channels=64, out_channels=64*3, kernel_size=4, stride=4),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=64*3, out_channels=64*64*1*3*3, kernel_size=2),
+            nn.ReLU()
+        )
+        
+        #self.conv2 = nn.Conv2d(in_channels=64, out_channels=64*64*1*3*3, kernel_size=8)  
+        #self.bn1 = nn.BatchNorm2d(64*64*1*3*3)
+
+    def forward(self, prev_out):
+        x = prev_out#torch.cat((prev_out, img_embed), dim=1)
+        batch_size = 192
+        c1 = self.layer(x).view(batch_size, 64, 64, 3, 3)
+        #c2 = self.conv2(x).view(batch_size, 64, 64, 3, 3)
+        #c1 = self.conv1(x).view(batch_size*64, 64, 3, 3)
+        #c2 = self.conv2(x).view(batch_size*64, 64, 3, 3)
+        
+        #c2 = F.dropout(c2, p=dropout_p)
+        
+        return c1#, c2
+
+
+class brain_kitchen(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.bn1 = nn.BatchNorm2d(64)
+
+    def forward(self, c1, prev_out):
+        x = prev_out
+        batch_size = 192
+  
+        #out = x.view(1, 64*batch_size, *x.shape[2:])
+        #weight0 = c1.view(64*batch_size, 64, 3, 3).clone().detach().requires_grad_(True)
+        #out = F.conv2d(out, weight=c1, stride=1, padding=1, groups=batch_size)
+        #out = out.view(batch_size, 64, 8, 8)
+        out = torch.cat([
+            F.conv2d(x[b].unsqueeze(0), c1[b], stride=1, padding=1)
+            for b in range(batch_size)
+        ])
+        
+        out = x + F.relu(self.bn1(out))
+        """
+        out = out.view(1, 64*batch_size, *out.shape[2:])
+        #weight1 = c2#.detach().clone()
+        out = F.conv2d(out, weight=c2, stride=1, padding=1, groups=batch_size)
+        out = out.view(batch_size, 64, 8, 8)
+        
+        out = x + F.relu(self.bn2(out))"""
+
+        return out
+    
+
+class Agent(nn.Module):
+    def __init__(self):
+        super().__init__()
+        pretrained_resnet = models.resnet18(pretrained=True)
+
+        self.vision_processesor = vision_processesor()
+        self.brain_menu = brain_menu()
+        self.brain_kitchen = brain_kitchen()
+        self.head = nn.Sequential(
+            #nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, stride=2),
+            #nn.ReLU(),
+            nn.Flatten(),
+            nn.Dropout(p=0.3),
+            nn.Linear(64*8*8, n_classes),
+            nn.Softmax(dim=1)
+        )
+
+    def forward(self, I, dropout_p=0):
+        img_embed = self.vision_processesor(I)
+        batch_size = 192
+        #c1 = self.C1.view(1, *self.C1.shape).repeat(batch_size, 1, 1, 1, 1)
+        #c2 = self.C2.view(1, *self.C2.shape).repeat(batch_size, 1, 1, 1, 1) 
+        
+        #out = self.out0.repeat(batch_size, 1, 1, 1)
+        out = img_embed
+        for i in range(n_computations):
+            c1 = self.brain_menu(out)
+            out = self.brain_kitchen(c1, out)
+        prob = torch.log(self.head(out))
+        return prob
