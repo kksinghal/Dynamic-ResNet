@@ -3,4 +3,4 @@
 ## Network Architecture
 ![/Architecture](./NetworkArchitecture.png) 
 
-### Architecture is unique, dynamic parameters, dynamic length. But, model doesn't show much signs of learning, loss going NaN (Not able to stablise it)
+### Architecture is unique featuring dynamic parameters, dynamic depth. But, model doesn't have much functional capacity, it's not even able to overfit single batch of data
